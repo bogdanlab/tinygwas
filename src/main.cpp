@@ -27,23 +27,28 @@ using namespace Eigen;
  * However, it is straightforward to extend to other GLM family.
  */
 
-double link(double mu){
-    return log(mu / (1-mu));
+double link(double mu)
+{
+    return log(mu / (1 - mu));
 }
-double linkinv(double eta) {
+double linkinv(double eta)
+{
     return 1 / (1 + exp(-eta));
 }
 
-double variance(double g) {
+double variance(double g)
+{
     return g * (1 - g);
 }
 
-double mu_eta(double eta) {
+double mu_eta(double eta)
+{
     // derivative of mu to eta
     return exp(-eta) / pow((1 + exp(-eta)), 2);
 }
 
-double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b, int max_iter, double tol) {
+double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b, int max_iter, double tol)
+{
     // b is the effect sizes to be optimized in place, also used as the starting points
     // return loglikelihood
     int n = X.rows();
@@ -59,7 +64,8 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
     VectorXd var_g(n);
     VectorXd z(n);
     VectorXd W(n);
-    for (int i_iter = 0; i_iter < max_iter; i_iter++) {
+    for (int i_iter = 0; i_iter < max_iter; i_iter++)
+    {
         g = eta.unaryExpr(std::ref(linkinv));
 
         var_g = g.unaryExpr(std::ref(variance));
@@ -68,21 +74,22 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
 
         W = gprime.array().square() / var_g.array();
         s_old = s;
+        // TODO: W.asDiagonal() performance can be improved
+        // no need to create NxN matrix W.asDiagonal()
+        // use something like W.colwise().sum() instead
         s = (svd.matrixU().transpose() * W.asDiagonal() * svd.matrixU()).inverse() *
-                svd.matrixU().transpose() * W.asDiagonal() * z;
+            svd.matrixU().transpose() * W.asDiagonal() * z;
         eta = svd.matrixU() * s;
-        if ((s - s_old).squaredNorm() < tol){
+        if ((s - s_old).squaredNorm() < tol)
+        {
             break;
         }
     }
-//    cout << "Optimized eta[0:5]:" << endl;
-//    cout << eta(seq(0, 5)) << endl;
     b = svd.matrixV() * svd.singularValues().cwiseInverse().asDiagonal() * svd.matrixU().transpose() * eta;
     VectorXd mu = eta.unaryExpr(std::ref(linkinv));
-//    cout << "Optimized beta:";
-//    cout << b << endl;
     double loglik = 0.;
-    for (int i = 0; i < n; i++){
+    for (int i = 0; i < n; i++)
+    {
         loglik += y(i) * log(mu(i)) + (1 - y(i)) * log(1 - mu(i));
     }
     return loglik;
@@ -92,12 +99,13 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
  * Implement repeated logistic regression
  */
 VectorXd logistic_lrt(const MatrixXd &var,
-                    const MatrixXd &cov,
-                    const VectorXd &y,
-                    int test_size,
-                    const vector<int> &test_index,
-                    int max_iter=200,
-                    double tol=1e-6) {
+                      const MatrixXd &cov,
+                      const VectorXd &y,
+                      int test_size,
+                      const vector<int> &test_index,
+                      int max_iter = 200,
+                      double tol = 1e-6)
+{
     // TODO: fit once to get the coefficients for the covarites and reuse the coefficients for the covariates for every regression.
     int n_indiv = var.rows();
     int n_var = var.cols();
@@ -110,18 +118,22 @@ VectorXd logistic_lrt(const MatrixXd &var,
     VectorXd beta_reduced = VectorXd::Zero(n_cov + test_size - test_index.size());
     // find index that is in the reduced model
     vector<int> reduced_index;
-    for (int i = 0; i < test_size; i++){
-        if (find(test_index.begin(), test_index.end(), i) == test_index.end()){
+    for (int i = 0; i < test_size; i++)
+    {
+        if (find(test_index.begin(), test_index.end(), i) == test_index.end())
+        {
             reduced_index.push_back(i);
         }
     }
-    for (int i = test_size; i < n_cov + test_size; i++){
+    for (int i = test_size; i < n_cov + test_size; i++)
+    {
         reduced_index.push_back(i);
     }
     cout << endl;
     VectorXd loglik_diff(n_var / test_size);
-    for (int i_test = 0; i_test < n_var / test_size; i_test++) {
-        design(all, seq(0, test_size - 1)) = \
+    for (int i_test = 0; i_test < n_var / test_size; i_test++)
+    {
+        design(all, seq(0, test_size - 1)) =
             var(all, seq(i_test * test_size, i_test * test_size + test_size - 1));
 
         double loglik_full = logistic_reg(design, y, beta_full, max_iter, tol);
@@ -154,7 +166,8 @@ inv22 = b_inv - np.linalg.multi_dot([v_mul_b_inv.T, a_inv, d_inv, v_mul_b_inv])
  */
 
 VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y, int test_size,
-                       const vector<int> &test_index) {
+                       const vector<int> &test_index)
+{
     // F-test for linear regression
     // var: variables to be tested
     // cov: covariates included
@@ -169,7 +182,8 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
     design << MatrixXd::Zero(n_indiv, test_size), cov;
     VectorXd rls_f_stat(n_var / test_size);
 
-    for (int i_test = 0; i_test < n_var / test_size; i_test++) {
+    for (int i_test = 0; i_test < n_var / test_size; i_test++)
+    {
         design(all, seq(0, test_size - 1)) = var(all, seq(i_test * test_size, i_test * test_size + test_size - 1));
         JacobiSVD<MatrixXd> svd(design, ComputeThinU | ComputeThinV);
         VectorXd beta = svd.solve(y);
@@ -183,7 +197,8 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
     return rls_f_stat;
 }
 
-PYBIND11_MODULE(admixgwas, m) {
+PYBIND11_MODULE(admixgwas, m)
+{
     m.doc() = "Genome-wide association testing in admixed population";
     m.def("linear_f_test", &linear_f_test);
     m.def("logistic_reg", &logistic_reg);
@@ -221,4 +236,3 @@ PYBIND11_MODULE(admixgwas, m) {
 //    // VectorXd y = cov * beta + VectorXd::Random(n_indiv);
 //    // linear_f_test(var, cov, y, 2, {0});
 //}
-
