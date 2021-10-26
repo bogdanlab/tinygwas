@@ -55,7 +55,6 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
     int m = X.cols();
     JacobiSVD<MatrixXd> svd(X, ComputeThinU | ComputeThinV);
     VectorXd eta = X * b;
-    // TODO: check appropriate to initialize as 0 here.
     VectorXd s = VectorXd::Zero(m);
     VectorXd s_old(m);
 
@@ -64,10 +63,10 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
     VectorXd var_g(n);
     VectorXd z(n);
     VectorXd W(n);
+
     for (int i_iter = 0; i_iter < max_iter; i_iter++)
     {
         g = eta.unaryExpr(std::ref(linkinv));
-
         var_g = g.unaryExpr(std::ref(variance));
         gprime = eta.unaryExpr(std::ref(mu_eta));
         z = eta + (y - g).cwiseQuotient(gprime);
@@ -106,7 +105,6 @@ VectorXd logistic_lrt(const MatrixXd &var,
                       int max_iter = 200,
                       double tol = 1e-6)
 {
-    // TODO: fit once to get the coefficients for the covarites and reuse the coefficients for the covariates for every regression.
     int n_indiv = var.rows();
     int n_var = var.cols();
     int n_cov = cov.cols();
@@ -114,6 +112,11 @@ VectorXd logistic_lrt(const MatrixXd &var,
     MatrixXd design(n_indiv, n_cov + test_size);
     design << MatrixXd::Zero(n_indiv, test_size), cov;
     VectorXd rls_f_stat(n_var / test_size);
+
+    // coefficients for the covariates
+    VectorXd beta_cov = VectorXd::Zero(n_cov);
+    logistic_reg(design(all, seq(test_size, n_cov + test_size - 1)), y, beta_cov, max_iter, tol);
+
     VectorXd beta_full = VectorXd::Zero(n_cov + test_size);
     VectorXd beta_reduced = VectorXd::Zero(n_cov + test_size - test_index.size());
     // find index that is in the reduced model
@@ -129,13 +132,14 @@ VectorXd logistic_lrt(const MatrixXd &var,
     {
         reduced_index.push_back(i);
     }
-    cout << endl;
     VectorXd loglik_diff(n_var / test_size);
     for (int i_test = 0; i_test < n_var / test_size; i_test++)
     {
         design(all, seq(0, test_size - 1)) =
             var(all, seq(i_test * test_size, i_test * test_size + test_size - 1));
-
+        beta_full.setZero();
+        beta_reduced.setZero();
+        beta_full(seq(test_size, n_cov + test_size - 1)) = beta_cov;
         double loglik_full = logistic_reg(design, y, beta_full, max_iter, tol);
         beta_reduced = beta_full(reduced_index);
         double loglik_reduced = logistic_reg(design(all, reduced_index), y, beta_reduced, max_iter, tol);
@@ -143,6 +147,7 @@ VectorXd logistic_lrt(const MatrixXd &var,
     }
     return loglik_diff;
 }
+
 /*
  * For potential computational speedup in the linear regression mode.
 b = np.dot(cov2.T, cov2)
