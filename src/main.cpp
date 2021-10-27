@@ -72,6 +72,14 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
         z = eta + (y - g).cwiseQuotient(gprime);
 
         W = gprime.array().square() / var_g.array();
+
+        if ((y - g).cwiseAbs().minCoeff() < 1e-4)
+        {
+            cout << "Warning: admixgwas.logistic_reg: abs(y - g).min() < 1e-4."
+                 << "could be due to complete seperation. Existing iterations early." << endl;
+            break;
+        }
+
         s_old = s;
         // TODO: W.asDiagonal() performance can be improved
         // no need to create NxN matrix W.asDiagonal()
