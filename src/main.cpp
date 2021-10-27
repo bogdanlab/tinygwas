@@ -97,7 +97,7 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
     double loglik = 0.;
     for (int i = 0; i < n; i++)
     {
-        loglik += y(i) * log(mu(i)) + (1 - y(i)) * log(1 - mu(i));
+        loglik += y(i) * log(mu(i) + 1e-20) + (1 - y(i)) * log(1 - mu(i) + 1e-20);
     }
     return loglik;
 }
