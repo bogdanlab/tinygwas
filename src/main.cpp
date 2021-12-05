@@ -75,7 +75,7 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
 
         if ((y - g).cwiseAbs().minCoeff() < 1e-4)
         {
-            cout << "Warning: admixgwas.logistic_reg: abs(y - g).min() < 1e-4."
+            cout << "Warning: tinygwas.logistic_reg: abs(y - g).min() < 1e-4."
                  << "could be due to complete seperation. Existing iterations early." << endl;
             break;
         }
@@ -182,8 +182,8 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
                        const vector<int> &test_index)
 {
     // F-test for linear regression
-    // var: variables to be tested
-    // cov: covariates included
+    // var: variables to be tested (NaN is allowed)
+    // cov: covariates common to all tests (no NaN is assumed)
     // y: response variables
     // test_size: number of variables included in each test.
     // test_index: index of the variables to be tested.
@@ -198,10 +198,23 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
     for (int i_test = 0; i_test < n_var / test_size; i_test++)
     {
         design(all, seq(0, test_size - 1)) = var(all, seq(i_test * test_size, i_test * test_size + test_size - 1));
-        JacobiSVD<MatrixXd> svd(design, ComputeThinU | ComputeThinV);
-        VectorXd beta = svd.solve(y);
+
+        // get the individual where all the variables are not NaN
+        vector<int> test_indiv_idx;
+        for (int i = 0; i < n_indiv; i++)
+        {
+            if (!design(i, seq(0, test_size - 1)).array().isNaN().any())
+            {
+                test_indiv_idx.push_back(i);
+            }
+        }
+        int n_test_indiv = test_indiv_idx.size();
+
+        // compute only on the individuals that do not have NaN
+        JacobiSVD<MatrixXd> svd(design(test_indiv_idx, all), ComputeThinU | ComputeThinV);
+        VectorXd beta = svd.solve(y(test_indiv_idx));
         MatrixXd ViD = svd.matrixV() * svd.singularValues().asDiagonal().inverse();
-        double sigma = (y - design * beta).squaredNorm() / (n_indiv - n_cov - test_size);
+        double sigma = (y(test_indiv_idx) - design(test_indiv_idx, all) * beta).squaredNorm() / (n_test_indiv - n_cov - test_size);
         MatrixXd iXtX = ViD * ViD.transpose();
         MatrixXd f_stat = beta(test_index).transpose() * iXtX(test_index, test_index).inverse() * beta(test_index) /
                           (test_index.size() * sigma);
@@ -210,9 +223,9 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
     return rls_f_stat;
 }
 
-PYBIND11_MODULE(admixgwas, m)
+PYBIND11_MODULE(tinygwas, m)
 {
-    m.doc() = "Genome-wide association testing in admixed population";
+    m.doc() = "Toy C++ implementation with python wrapper for genome-wide association testing";
     m.def("linear_f_test", &linear_f_test);
     m.def("logistic_reg", &logistic_reg);
     m.def("logistic_lrt", &logistic_lrt);
