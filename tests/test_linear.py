@@ -24,7 +24,7 @@ def linear_ftest(var, cov, pheno, var_size, test_vars):
     for i_test in range(n_test):
         design[:, 0:var_size] = var[:, i_test * var_size : (i_test + 1) * var_size]
         model = sm.OLS(pheno, design, missing="drop").fit()
-        fvalues[i_test] = model.f_test(f_test_r_matrix).fvalue.item()
+        fvalues[i_test] = model.f_test(f_test_r_matrix).fvalue
     return fvalues
 
 
