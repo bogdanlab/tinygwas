@@ -178,8 +178,8 @@ inv12 = -np.dot(linalg.inv(a - quad_form), v_mul_b_inv)
 inv22 = b_inv - np.linalg.multi_dot([v_mul_b_inv.T, a_inv, d_inv, v_mul_b_inv])
  */
 
-VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y, int test_size,
-                       const vector<int> &test_index)
+void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y, int test_size,
+                   const vector<int> &test_index, Eigen::Ref<VectorXd> rls_fstat, Eigen::Ref<VectorXd> rls_n_indiv)
 {
     // F-test for linear regression
     // var: variables to be tested (NaN is allowed)
@@ -193,9 +193,11 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
 
     MatrixXd design(n_indiv, n_cov + test_size);
     design << MatrixXd::Zero(n_indiv, test_size), cov;
-    VectorXd rls_f_stat(n_var / test_size);
+    int n_test = n_var / test_size;
+    assert(rls_fstat.size() == n_test);
+    assert(rls_n_indiv.size() == n_test);
 
-    for (int i_test = 0; i_test < n_var / test_size; i_test++)
+    for (int i_test = 0; i_test < n_test; i_test++)
     {
         design(all, seq(0, test_size - 1)) = var(all, seq(i_test * test_size, i_test * test_size + test_size - 1));
 
@@ -209,6 +211,7 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
             }
         }
         int n_test_indiv = test_indiv_idx.size();
+        rls_n_indiv[i_test] = n_test_indiv;
 
         // compute only on the individuals that do not have NaN
         JacobiSVD<MatrixXd> svd(design(test_indiv_idx, all), ComputeThinU | ComputeThinV);
@@ -218,9 +221,9 @@ VectorXd linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd 
         MatrixXd iXtX = ViD * ViD.transpose();
         MatrixXd f_stat = beta(test_index).transpose() * iXtX(test_index, test_index).inverse() * beta(test_index) /
                           (test_index.size() * sigma);
-        rls_f_stat[i_test] = f_stat(0, 0);
+
+        rls_fstat[i_test] = f_stat(0, 0);
     }
-    return rls_f_stat;
 }
 
 PYBIND11_MODULE(tinygwas, m)
