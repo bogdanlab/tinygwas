@@ -73,11 +73,12 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
 
         W = gprime.array().square() / var_g.array();
 
-        if ((y - g).cwiseAbs().minCoeff() < 1e-4)
+        // fraction of observations can be perfectly predicted
+        double predclose_frac = ((y - g).cwiseAbs().array() < 1e-4).cast<double>().mean();
+        if (predclose_frac > 0.05)
         {
-            cout << "Warning: tinygwas.logistic_reg: abs(y - g).min() < 1e-4."
-                 << "could be due to complete seperation. Existing iterations early." << endl;
-            break;
+            cout << "Warning: [tinygwas.logistic_reg] A fraction of " << static_cast<int>(predclose_frac * 100) << "% of the observations can be perfectly predicted (abs(y - g) < 1e-4). This might indicate complete quasi-separation. Exiting iterations early and the corresponding loglik is set to NaN" << endl;
+            return std::numeric_limits<double>::quiet_NaN();
         }
 
         s_old = s;
