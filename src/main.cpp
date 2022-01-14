@@ -70,7 +70,6 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
         var_g = g.unaryExpr(std::ref(variance));
         gprime = eta.unaryExpr(std::ref(mu_eta));
         z = eta + (y - g).cwiseQuotient(gprime);
-
         W = gprime.array().square() / var_g.array();
 
         // fraction of observations can be perfectly predicted
@@ -82,17 +81,17 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y, Eigen::Ref<VectorXd> b
         }
 
         s_old = s;
-        // TODO: W.asDiagonal() performance can be improved
-        // no need to create NxN matrix W.asDiagonal()
-        // use something like W.colwise().sum() instead
-        s = (svd.matrixU().transpose() * W.asDiagonal() * svd.matrixU()).inverse() *
-            svd.matrixU().transpose() * W.asDiagonal() * z;
+
+        // solve U.T W U s = U.T W z
+        auto UtW = svd.matrixU().transpose() * W.asDiagonal();
+        s = (UtW * svd.matrixU()).ldlt().solve(UtW * z);
         eta = svd.matrixU() * s;
         if ((s - s_old).squaredNorm() < tol)
         {
             break;
         }
     }
+
     b = svd.matrixV() * svd.singularValues().cwiseInverse().asDiagonal() * svd.matrixU().transpose() * eta;
     VectorXd mu = eta.unaryExpr(std::ref(linkinv));
     double loglik = 0.;
@@ -120,7 +119,6 @@ VectorXd logistic_lrt(const MatrixXd &var,
 
     MatrixXd design(n_indiv, n_cov + test_size);
     design << MatrixXd::Zero(n_indiv, test_size), cov;
-    VectorXd rls_f_stat(n_var / test_size);
 
     // coefficients for the covariates
     VectorXd beta_cov = VectorXd::Zero(n_cov);
@@ -128,6 +126,7 @@ VectorXd logistic_lrt(const MatrixXd &var,
 
     VectorXd beta_full = VectorXd::Zero(n_cov + test_size);
     VectorXd beta_reduced = VectorXd::Zero(n_cov + test_size - test_index.size());
+
     // find index that is in the reduced model
     vector<int> reduced_index;
     for (int i = 0; i < test_size; i++)
@@ -142,6 +141,7 @@ VectorXd logistic_lrt(const MatrixXd &var,
         reduced_index.push_back(i);
     }
     VectorXd loglik_diff(n_var / test_size);
+
     for (int i_test = 0; i_test < n_var / test_size; i_test++)
     {
         design(all, seq(0, test_size - 1)) =
@@ -179,8 +179,13 @@ inv12 = -np.dot(linalg.inv(a - quad_form), v_mul_b_inv)
 inv22 = b_inv - np.linalg.multi_dot([v_mul_b_inv.T, a_inv, d_inv, v_mul_b_inv])
  */
 
-void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y, int test_size,
-                   const vector<int> &test_index, Eigen::Ref<VectorXd> rls_fstat, Eigen::Ref<VectorXd> rls_n_indiv)
+void linear_f_test(const MatrixXd &var,
+                   const MatrixXd &cov,
+                   const VectorXd &y,
+                   int test_size,
+                   const vector<int> &test_index,
+                   Eigen::Ref<VectorXd> res_fstat,
+                   Eigen::Ref<VectorXd> res_n_indiv)
 {
     // F-test for linear regression
     // var: variables to be tested (NaN is allowed)
@@ -195,8 +200,8 @@ void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y, 
     MatrixXd design(n_indiv, n_cov + test_size);
     design << MatrixXd::Zero(n_indiv, test_size), cov;
     int n_test = n_var / test_size;
-    assert(rls_fstat.size() == n_test);
-    assert(rls_n_indiv.size() == n_test);
+    assert(res_fstat.size() == n_test);
+    assert(res_n_indiv.size() == n_test);
 
     for (int i_test = 0; i_test < n_test; i_test++)
     {
@@ -212,18 +217,21 @@ void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y, 
             }
         }
         int n_test_indiv = test_indiv_idx.size();
-        rls_n_indiv[i_test] = n_test_indiv;
+        res_n_indiv[i_test] = n_test_indiv;
 
         // compute only on the individuals that do not have NaN
         JacobiSVD<MatrixXd> svd(design(test_indiv_idx, all), ComputeThinU | ComputeThinV);
         VectorXd beta = svd.solve(y(test_indiv_idx));
         MatrixXd ViD = svd.matrixV() * svd.singularValues().asDiagonal().inverse();
-        double sigma = (y(test_indiv_idx) - design(test_indiv_idx, all) * beta).squaredNorm() / (n_test_indiv - n_cov - test_size);
+        double sigma = (y(test_indiv_idx) - design(test_indiv_idx, all) * beta).squaredNorm() /
+                       (n_test_indiv - n_cov - test_size);
         MatrixXd iXtX = ViD * ViD.transpose();
-        MatrixXd f_stat = beta(test_index).transpose() * iXtX(test_index, test_index).inverse() * beta(test_index) /
+        MatrixXd f_stat = beta(test_index).transpose() *
+                          iXtX(test_index, test_index).inverse() *
+                          beta(test_index) /
                           (test_index.size() * sigma);
 
-        rls_fstat[i_test] = f_stat(0, 0);
+        res_fstat[i_test] = f_stat(0, 0);
     }
 }
 
@@ -234,35 +242,3 @@ PYBIND11_MODULE(tinygwas, m)
     m.def("logistic_reg", &logistic_reg);
     m.def("logistic_lrt", &logistic_lrt);
 }
-
-//int main(int argc, char *argv[]) {
-//    int n_indiv = 1000;
-//    int n_cov = 5;
-//    int n_var = 100;
-//    MatrixXd cov = MatrixXd::Random(n_indiv, n_cov);
-//    MatrixXd var = MatrixXd::Random(n_indiv, n_var);
-//    VectorXd beta = VectorXd::Random(n_cov);
-//    VectorXd mu = (cov * beta).unaryExpr(std::ref(linkinv));
-//
-//    VectorXd y(n_indiv);
-//
-//    std::random_device rd{}; // use to seed the rng
-//    std::mt19937 rng{rd()}; // rng
-//
-//    for (int i = 0; i < n_indiv; i++){
-//        std::bernoulli_distribution d(mu(i));
-//        y(i) = d(rng);
-//    }
-//    cout << "y: " << endl;
-//    cout << y({0, 1, 2, 3, 4, 5}) << endl;
-//
-//    VectorXd b = VectorXd::Zero(n_cov);
-//    logistic_reg(cov, y, b, 100, 1e-6);
-//    cout << "Groundtruth:" << endl;
-//    cout << beta << endl;
-//    cout << "Estimation:" << endl;
-//    cout << b << endl;
-//    cout << logistic_lrt(var, cov, y, 2, {0}) << endl;
-//    // VectorXd y = cov * beta + VectorXd::Random(n_indiv);
-//    // linear_f_test(var, cov, y, 2, {0});
-//}
