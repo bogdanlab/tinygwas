@@ -28,6 +28,9 @@ def linear_ftest(var, cov, pheno, var_size, test_vars):
     return fvalues
 
 
+# TODO: also test for logistic regression
+
+
 def test_consistency():
     np.random.seed(1234)
     n_indiv = 100
@@ -38,10 +41,13 @@ def test_consistency():
     cov = np.random.normal(size=(n_indiv, n_cov))
     pheno = np.random.normal(size=n_indiv)
     var = np.random.normal(size=(n_indiv, n_snp * var_size))
+
     # test consistency without NaN
+    res = np.zeros((n_snp, var_size * 2 + 2))
     fvalues1 = np.empty(n_snp)
     nindiv1 = np.empty(n_snp)
-    tinygwas.linear_f_test(var, cov, pheno, var_size, test_vars, fvalues1, nindiv1)
+    tinygwas.linear_f_test(var, cov, pheno, var_size, test_vars, res)
+    fvalues1 = res[:, -1]
     fvalues2 = linear_ftest(var, cov, pheno, var_size, test_vars)
     print("Without NaN:")
     print(fvalues1[0:5])
@@ -58,11 +64,8 @@ def test_consistency():
                 np.random.randint(0, nan_var.shape[0]),
                 np.random.randint(0, nan_var.shape[1]),
             ] = np.nan
-        fvalues1 = np.empty(n_snp)
-        nindiv1 = np.empty(n_snp)
-        tinygwas.linear_f_test(
-            nan_var, cov, pheno, var_size, test_vars, fvalues1, nindiv1
-        )
+        tinygwas.linear_f_test(nan_var, cov, pheno, var_size, test_vars, res)
+        fvalues1 = res[:, -1]
         fvalues2 = linear_ftest(nan_var, cov, pheno, var_size, test_vars)
         print(fvalues1[0:5])
 
