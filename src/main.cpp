@@ -1,6 +1,7 @@
 #include <Eigen/Core>
 #include <Eigen/LU>
 #include <Eigen/SVD>
+#include <ctime>
 #include <iostream>
 #include <numeric>
 #include <random>
@@ -15,6 +16,8 @@ namespace py = pybind11;
 
 using namespace std;
 using namespace Eigen;
+using RowMatrixXd =
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
 /*
  * Logistic regression IRLS implementation.
@@ -40,13 +43,15 @@ double mu_eta(double eta) {
 }
 
 double logistic_reg(const MatrixXd &X, const VectorXd &y,
-                    Eigen::Ref<VectorXd> b, int max_iter, double tol) {
+                    Eigen::Ref<VectorXd> b, Eigen::Ref<VectorXd> se,
+                    int max_iter, double tol) {
   // b is the effect sizes to be optimized in place, also used as the starting
   // points return loglikelihood
+
   int n = X.rows();
   int m = X.cols();
   JacobiSVD<MatrixXd> svd(X, ComputeThinU | ComputeThinV);
-  
+
   VectorXd eta = X * b;
   VectorXd s = VectorXd::Zero(m);
   VectorXd s_old(m);
@@ -91,6 +96,14 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y,
   b = svd.matrixV() * svd.singularValues().cwiseInverse().asDiagonal() *
       svd.matrixU().transpose() * eta;
   VectorXd mu = eta.unaryExpr(std::ref(linkinv));
+
+  // calculate standard errors of beta
+  VectorXd var_mu = mu.unaryExpr(std::ref(variance));
+  se = (X.transpose() * var_mu.asDiagonal() * X)
+           .inverse()
+           .diagonal()
+           .cwiseSqrt();
+
   double loglik = 0.;
   for (int i = 0; i < n; i++) {
     loglik += y(i) * log(mu(i) + 1e-20) + (1 - y(i)) * log(1 - mu(i) + 1e-20);
@@ -101,24 +114,35 @@ double logistic_reg(const MatrixXd &X, const VectorXd &y,
 /*
  * Implement repeated logistic regression
  */
-VectorXd logistic_lrt(const MatrixXd &var, const MatrixXd &cov,
-                      const VectorXd &y, int test_size,
-                      const vector<int> &test_index, int max_iter = 200,
-                      double tol = 1e-6) {
+void logistic_lrt(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y,
+                  int test_size, const vector<int> &test_index,
+                  Eigen::Ref<RowMatrixXd> res, int max_iter = 200,
+                  double tol = 1e-6) {
+  // return BETA1, SE1, BETA2, SE2, N, P
   int n_indiv = var.rows();
   int n_var = var.cols();
   int n_cov = cov.cols();
+
+  int n_test = n_var / test_size;
+
+  if (!((res.rows() == n_test) && (res.cols() == test_size * 2 + 2))) {
+    throw std::invalid_argument("[tinygwas.logistic_lrt] res should be a "
+                                "matrix of size (n_test, test_size * 2 + 2)");
+  }
 
   MatrixXd design(n_indiv, n_cov + test_size);
   design << MatrixXd::Zero(n_indiv, test_size), cov;
 
   // coefficients for the covariates
   VectorXd beta_cov = VectorXd::Zero(n_cov);
+  VectorXd se_cov = VectorXd::Zero(n_cov);
   logistic_reg(design(all, seq(test_size, n_cov + test_size - 1)), y, beta_cov,
-               max_iter, tol);
+               se_cov, max_iter, tol);
 
   VectorXd beta_full = VectorXd::Zero(n_cov + test_size);
+  VectorXd se_full = VectorXd::Zero(n_cov + test_size);
   VectorXd beta_reduced = VectorXd::Zero(n_cov + test_size - test_index.size());
+  VectorXd se_reduced = VectorXd::Zero(n_cov + test_size - test_index.size());
 
   // find index that is in the reduced model
   vector<int> reduced_index;
@@ -130,21 +154,42 @@ VectorXd logistic_lrt(const MatrixXd &var, const MatrixXd &cov,
   for (int i = test_size; i < n_cov + test_size; i++) {
     reduced_index.push_back(i);
   }
-  VectorXd loglik_diff(n_var / test_size);
+  VectorXd loglik_diff(n_test);
 
-  for (int i_test = 0; i_test < n_var / test_size; i_test++) {
+  for (int i_test = 0; i_test < n_test; i_test++) {
     design(all, seq(0, test_size - 1)) =
         var(all, seq(i_test * test_size, i_test * test_size + test_size - 1));
+
+    // get the individual where all the variables are not NaN
+    vector<int> test_indiv_idx;
+    for (int i = 0; i < n_indiv; i++) {
+      if (!design(i, seq(0, test_size - 1)).array().isNaN().any()) {
+        test_indiv_idx.push_back(i);
+      }
+    }
+    int n_test_indiv = test_indiv_idx.size();
+
     beta_full.setZero();
     beta_reduced.setZero();
     beta_full(seq(test_size, n_cov + test_size - 1)) = beta_cov;
-    double loglik_full = logistic_reg(design, y, beta_full, max_iter, tol);
+
+    double loglik_full =
+        logistic_reg(design(test_indiv_idx, all), y(test_indiv_idx), beta_full,
+                     se_full, max_iter, tol);
     beta_reduced = beta_full(reduced_index);
-    double loglik_reduced = logistic_reg(design(all, reduced_index), y,
-                                         beta_reduced, max_iter, tol);
-    loglik_diff(i_test) = loglik_full - loglik_reduced;
+    double loglik_reduced =
+        logistic_reg(design(test_indiv_idx, reduced_index), y(test_indiv_idx),
+                     beta_reduced, se_reduced, max_iter, tol);
+
+    // save results: BETA1, SE1, BETA2, SE2, ..., N, loglihood_diff
+    for (int i = 0; i < test_size; i++) {
+      res(i_test, i * 2) = beta_full(i);
+      res(i_test, i * 2 + 1) = se_full(i);
+    }
+    res(i_test, test_size * 2) = n_test_indiv;
+    res(i_test, test_size * 2 + 1) = loglik_full - loglik_reduced;
   }
-  return loglik_diff;
+  return;
 }
 
 /*
@@ -171,14 +216,15 @@ inv22 = b_inv - np.linalg.multi_dot([v_mul_b_inv.T, a_inv, d_inv, v_mul_b_inv])
 
 void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y,
                    int test_size, const vector<int> &test_index,
-                   Eigen::Ref<VectorXd> res_fstat,
-                   Eigen::Ref<VectorXd> res_n_indiv) {
+                   Eigen::Ref<RowMatrixXd> res) {
   // F-test for linear regression
   // var: variables to be tested (NaN is allowed)
   // cov: covariates common to all tests (no NaN is assumed)
   // y: response variables
   // test_size: number of variables included in each test.
   // test_index: index of the variables to be tested.
+  // return: BETA1, SE1, BETA2, SE2, N, f-stat
+
   int n_indiv = var.rows();
   int n_var = var.cols();
   int n_cov = cov.cols();
@@ -186,8 +232,10 @@ void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y,
   MatrixXd design(n_indiv, n_cov + test_size);
   design << MatrixXd::Zero(n_indiv, test_size), cov;
   int n_test = n_var / test_size;
-  assert(res_fstat.size() == n_test);
-  assert(res_n_indiv.size() == n_test);
+  if (!((res.rows() == n_test) && (res.cols() == test_size * 2 + 2))) {
+    throw std::invalid_argument("[tinygwas.logistic_lrt] res should be a "
+                                "matrix of size (n_test, test_size * 2 + 2)");
+  }
 
   for (int i_test = 0; i_test < n_test; i_test++) {
     design(all, seq(0, test_size - 1)) =
@@ -201,23 +249,29 @@ void linear_f_test(const MatrixXd &var, const MatrixXd &cov, const VectorXd &y,
       }
     }
     int n_test_indiv = test_indiv_idx.size();
-    res_n_indiv[i_test] = n_test_indiv;
 
     // compute only on the individuals that do not have NaN
     JacobiSVD<MatrixXd> svd(design(test_indiv_idx, all),
                             ComputeThinU | ComputeThinV);
     VectorXd beta = svd.solve(y(test_indiv_idx));
     MatrixXd ViD = svd.matrixV() * svd.singularValues().asDiagonal().inverse();
-    double sigma =
+    double sigmasq =
         (y(test_indiv_idx) - design(test_indiv_idx, all) * beta).squaredNorm() /
         (n_test_indiv - n_cov - test_size);
     MatrixXd iXtX = ViD * ViD.transpose();
     MatrixXd f_stat = beta(test_index).transpose() *
                       iXtX(test_index, test_index).inverse() *
-                      beta(test_index) / (test_index.size() * sigma);
+                      beta(test_index) / (test_index.size() * sigmasq);
 
-    res_fstat[i_test] = f_stat(0, 0);
+    // save results: BETA1, SE1, BETA2, SE2, ..., N, f-stat
+    for (int i = 0; i < test_size; i++) {
+      res(i_test, i * 2) = beta(i);
+      res(i_test, i * 2 + 1) = sqrt(sigmasq * iXtX(i, i));
+    }
+    res(i_test, test_size * 2) = n_test_indiv;
+    res(i_test, test_size * 2 + 1) = f_stat(0, 0);
   }
+  return;
 }
 
 PYBIND11_MODULE(tinygwas, m) {
