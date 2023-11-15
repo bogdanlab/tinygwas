@@ -3,8 +3,12 @@
 
 ## Install python version
 ```bash
+# from latest published version
+pip install tinygwas
+# from github
 pip install -e .
 ```
+
 
 ## Contact
 Kangcheng Hou (kangchenghou@gmail.com)
