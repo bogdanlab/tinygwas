@@ -4,7 +4,7 @@ test_data/
 run.sh
 .DS_Store
 .idea
-
+.vscode/
 
 # cmake
 cmake-build-*/
@@ -19,7 +19,6 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
-
 
 # Distribution / packaging
 .Python
