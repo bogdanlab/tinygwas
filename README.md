@@ -10,5 +10,10 @@ pip install -e .
 ```
 
 
+## Upload to PyPI (for developers)
+```
+python setup.py sdist
+twine upload dist/*
+```
 ## Contact
 Kangcheng Hou (kangchenghou@gmail.com)

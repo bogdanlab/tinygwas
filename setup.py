@@ -73,7 +73,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="tinygwas",
-    version="0.2",
+    version="0.2.1",
     install_requires=["pybind11", "numpy"],
     author="Kangcheng Hou",
     author_email="kangchenghou@gmail.com",
