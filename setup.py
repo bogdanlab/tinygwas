@@ -40,6 +40,7 @@ class CMakeBuild(build_ext):
         cmake_args = [
             "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
             "-DPYTHON_EXECUTABLE=" + sys.executable,
+            "-DPython_EXECUTABLE=" + sys.executable,
         ]
 
         cfg = "Debug" if self.debug else "Release"
@@ -73,7 +74,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="tinygwas",
-    version="0.2.1",
+    version="0.2.3",
     install_requires=["pybind11", "numpy"],
     author="Kangcheng Hou",
     author_email="kangchenghou@gmail.com",
