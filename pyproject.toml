@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools", "wheel", "cmake>=3.15"]
+build-backend = "setuptools.build_meta"
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "*-musllinux_* *_i686"
+test-requires = ["pytest", "statsmodels"]
+test-command = "pytest {project}/tests"
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }

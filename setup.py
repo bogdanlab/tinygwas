@@ -4,7 +4,6 @@ import sys
 import platform
 import subprocess
 
-from distutils.version import LooseVersion
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 
@@ -26,10 +25,11 @@ class CMakeBuild(build_ext):
             )
 
         if platform.system() == "Windows":
-            cmake_version = LooseVersion(
-                re.search(r"version\s*([\d.]+)", out.decode()).group(1)
+            cmake_version = tuple(
+                int(x)
+                for x in re.search(r"version\s*(\d+)\.(\d+)", out.decode()).groups()
             )
-            if cmake_version < "3.1.0":
+            if cmake_version < (3, 1):
                 raise RuntimeError("CMake >= 3.1.0 is required on Windows")
 
         for ext in self.extensions:
@@ -74,7 +74,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="tinygwas",
-    version="0.2.3",
+    version="0.2.4",
     install_requires=["pybind11", "numpy"],
     author="Kangcheng Hou",
     author_email="kangchenghou@gmail.com",
